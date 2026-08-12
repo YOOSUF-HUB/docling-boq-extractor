@@ -1,11 +1,11 @@
 """CLI entry point.
 
-Phase 1 scope:
+Current scope (Phases 1-2):
 
     python -m app.main [--input data/input/sample_boq.pdf]
 
-validates a PDF, runs it through Docling, writes the Markdown and Docling JSON
-exports to `data/output/`, and prints a summary of what was found.
+validates a PDF, runs it through Docling, builds the agent-facing evidence
+package, writes all three artifacts to `data/output/`, and prints a summary.
 """
 
 from __future__ import annotations
@@ -18,13 +18,16 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.document.docling_processor import DoclingProcessor, DoclingResult
+from app.document.evidence_builder import build_evidence_from_result
 from app.errors import DocumentError, ExtractionError
 from app.logging_config import configure_logging
+from app.schemas.evidence import EvidencePackage, TableEvidence
 
 logger = logging.getLogger(__name__)
 
 MARKDOWN_FILENAME = "docling_output.md"
 DOCUMENT_JSON_FILENAME = "docling_document.json"
+EVIDENCE_FILENAME = "evidence.json"
 
 EXIT_OK = 0
 EXIT_DOCUMENT_ERROR = 1
@@ -61,6 +64,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Lines of extracted Markdown to print (0 disables, default: %(default)s)",
     )
     parser.add_argument(
+        "--preview-elements",
+        type=int,
+        default=12,
+        help="Evidence elements to print in document order (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--preview-rows",
+        type=int,
+        default=5,
+        help="Rows to print per previewed table (default: %(default)s)",
+    )
+    parser.add_argument(
         "--log-level",
         default=settings.log_level,
         help="Logging level (default: %(default)s)",
@@ -68,7 +83,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def write_outputs(result: DoclingResult, output_dir: Path) -> dict[str, Path]:
+def write_outputs(
+    result: DoclingResult,
+    evidence: EvidencePackage,
+    output_dir: Path,
+) -> dict[str, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     markdown_path = output_dir / MARKDOWN_FILENAME
@@ -80,10 +99,20 @@ def write_outputs(result: DoclingResult, output_dir: Path) -> dict[str, Path]:
         encoding="utf-8",
     )
 
-    return {"markdown": markdown_path, "document_json": document_path}
+    evidence_path = output_dir / EVIDENCE_FILENAME
+    evidence_path.write_text(
+        evidence.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+    return {
+        "markdown": markdown_path,
+        "document_json": document_path,
+        "evidence": evidence_path,
+    }
 
 
-def print_summary(result: DoclingResult, outputs: dict[str, Path], preview_lines: int) -> None:
+def print_docling_summary(result: DoclingResult, markdown_path: Path, preview_lines: int) -> None:
     summary = result.summary
     print()
     print("========== DOCLING ==========")
@@ -102,11 +131,6 @@ def print_summary(result: DoclingResult, outputs: dict[str, Path], preview_lines
             page = table.page_number if table.page_number is not None else "?"
             print(f"  [{table.index}] page {page} — {table.num_rows} rows x {table.num_cols} cols")
 
-    print()
-    print("Outputs:")
-    for path in outputs.values():
-        print(f"  {path}")
-
     if preview_lines > 0 and result.markdown.strip():
         lines = result.markdown.splitlines()
         print()
@@ -114,7 +138,50 @@ def print_summary(result: DoclingResult, outputs: dict[str, Path], preview_lines
         for line in lines[:preview_lines]:
             print(line)
         if len(lines) > preview_lines:
-            print(f"... ({len(lines) - preview_lines} more lines in {outputs['markdown']})")
+            print(f"... ({len(lines) - preview_lines} more lines in {markdown_path})")
+
+
+def print_evidence_summary(evidence: EvidencePackage, max_elements: int, max_rows: int) -> None:
+    stats = evidence.statistics
+    print()
+    print("========== EVIDENCE ==========")
+    print(f"Version       : {evidence.evidence_version}")
+    print(f"Pages         : {stats.pages}")
+    print(f"Text blocks   : {stats.text_blocks}")
+    print(f"Tables        : {stats.tables}")
+    print(f"Table rows    : {stats.table_rows}")
+    print(f"Pictures      : {stats.pictures}")
+
+    elements = evidence.elements_in_document_order()
+    if not elements or max_elements <= 0:
+        return
+
+    print()
+    print("Document order:")
+    for element in elements[:max_elements]:
+        page = element.page_number if element.page_number is not None else "?"
+        if isinstance(element, TableEvidence):
+            print(
+                f"  [{element.sequence}] p{page} table#{element.table_index} "
+                f"({element.num_rows}x{element.num_cols}, {len(element.rows)} non-empty rows)"
+            )
+            for row in element.rows[:max_rows]:
+                marker = "H" if row.is_header else " "
+                print(f"        {marker} r{row.row_index}: {' | '.join(row.cells)}")
+            if len(element.rows) > max_rows:
+                print(f"        … {len(element.rows) - max_rows} more rows")
+        else:
+            print(f"  [{element.sequence}] p{page} {element.label}: {element.text}")
+
+    if len(elements) > max_elements:
+        print(f"  … {len(elements) - max_elements} more elements")
+
+
+def print_outputs(outputs: dict[str, Path]) -> None:
+    print()
+    print("Outputs:")
+    for path in outputs.values():
+        print(f"  {path}")
     print()
 
 
@@ -138,8 +205,12 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Extraction error: %s", exc)
         return EXIT_EXTRACTION_ERROR
 
-    outputs = write_outputs(result, args.output_dir)
-    print_summary(result, outputs, args.preview_lines)
+    evidence = build_evidence_from_result(result)
+
+    outputs = write_outputs(result, evidence, args.output_dir)
+    print_docling_summary(result, outputs["markdown"], args.preview_lines)
+    print_evidence_summary(evidence, args.preview_elements, args.preview_rows)
+    print_outputs(outputs)
     return EXIT_OK
 
 

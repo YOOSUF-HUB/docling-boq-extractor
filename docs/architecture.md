@@ -61,7 +61,10 @@ app/
   document/
     pdf_validator.py     deterministic input checks
     docling_processor.py Docling conversion + summary
-  schemas/               Pydantic models        (Phase 2/3)
+    evidence_builder.py  DoclingDocument -> EvidencePackage
+  schemas/
+    evidence.py          agent-facing evidence schema
+    boq.py, report.py    canonical BOQ + report   (Phase 3)
   agent/                 Groq client + prompts  (Phase 4)
   validation/            BOQ rule validation    (Phase 3)
   services/              end-to-end orchestration (Phase 5)
@@ -92,7 +95,7 @@ of scope.
 | Phase | Deliverable | Status |
 |---|---|---|
 | 1 | Project foundation + Docling processing | done |
-| 2 | Evidence package | pending |
+| 2 | Evidence package | done |
 | 3 | Canonical BOQ schema + deterministic validation | pending |
 | 4 | Groq GPT-OSS 120B integration | pending |
 | 5 | End-to-end PDF → BOQ JSON | pending |

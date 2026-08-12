@@ -20,7 +20,11 @@
       "Bash(.venv/bin/python -m app.main --input /tmp/fake.pdf)",
       "Bash(.venv/bin/python -m pytest)",
       "Bash(.venv/bin/python -m app.main --no-ocr)",
-      "Bash(.venv/bin/python -m compileall -q app scripts tests)"
+      "Bash(.venv/bin/python -m compileall -q app scripts tests)",
+      "Bash(.venv/bin/python -m pytest tests/test_evidence.py -m \"not docling\")",
+      "Bash(.venv/bin/python -m app.main --no-ocr --preview-lines 0)",
+      "Bash(awk '{print $5, $9}')",
+      "Bash(.venv/bin/python -m app.main --no-ocr --preview-lines 0 --preview-elements 3)"
     ],
     "additionalDirectories": [
       "/Users/yoosufahamed/Desktop/Projects/Docling BOQ Structure Extraction Agent/docling-boq-extractor/app"
