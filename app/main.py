@@ -1,11 +1,16 @@
 """CLI entry point.
 
-Current scope (Phases 1-2):
+Current scope (Phases 1-3):
 
     python -m app.main [--input data/input/sample_boq.pdf]
 
 validates a PDF, runs it through Docling, builds the agent-facing evidence
 package, writes all three artifacts to `data/output/`, and prints a summary.
+
+    python -m app.main --validate-boq tests/fixtures/valid_boq.json
+
+parses a canonical BOQ JSON document and applies the deterministic BOQ rules,
+without touching Docling or the LLM.
 """
 
 from __future__ import annotations
@@ -16,12 +21,21 @@ import logging
 import sys
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from app.config import get_settings
 from app.document.docling_processor import DoclingProcessor, DoclingResult
 from app.document.evidence_builder import build_evidence_from_result
 from app.errors import DocumentError, ExtractionError
 from app.logging_config import configure_logging
+from app.schemas.boq import BOQDocument
 from app.schemas.evidence import EvidencePackage, TableEvidence
+from app.schemas.report import ExtractionReport
+from app.validation.boq_validator import (
+    failed_report,
+    issues_from_validation_error,
+    validate_boq,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +46,7 @@ EVIDENCE_FILENAME = "evidence.json"
 EXIT_OK = 0
 EXIT_DOCUMENT_ERROR = 1
 EXIT_EXTRACTION_ERROR = 2
+EXIT_VALIDATION_ERROR = 3
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -51,6 +66,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=settings.output_dir,
         help="Directory for the Docling exports (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--validate-boq",
+        type=Path,
+        metavar="PATH",
+        help="Validate a canonical BOQ JSON file and exit (no Docling, no LLM).",
     )
     parser.add_argument(
         "--no-ocr",
@@ -177,6 +198,47 @@ def print_evidence_summary(evidence: EvidencePackage, max_elements: int, max_row
         print(f"  … {len(elements) - max_elements} more elements")
 
 
+def print_validation_report(report: ExtractionReport) -> None:
+    print()
+    print("========== VALIDATION ==========")
+    print(f"Status        : {report.status.value}")
+    stats = report.statistics
+    print(f"Items         : {stats.items_extracted}")
+    print(f"Sections      : {stats.sections_detected}")
+    print(f"Errors        : {len(report.errors)}")
+    print(f"Warnings      : {len(report.warnings)}")
+
+    for label, issues in (("Errors", report.errors), ("Warnings", report.warnings)):
+        if not issues:
+            continue
+        print()
+        print(f"{label}:")
+        for issue in issues:
+            location = f" [item {issue.item_index}]" if issue.item_index is not None else ""
+            print(f"  {issue.type.value}{location}: {issue.message}")
+    print()
+
+
+def run_boq_validation(path: Path) -> int:
+    """`--validate-boq`: parse a canonical BOQ JSON file and apply the rules."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.error("Could not read BOQ JSON: %s", exc)
+        return EXIT_DOCUMENT_ERROR
+
+    try:
+        boq = BOQDocument.model_validate(payload)
+    except ValidationError as exc:
+        report = failed_report(issues_from_validation_error(exc))
+        print_validation_report(report)
+        return EXIT_VALIDATION_ERROR
+
+    report = validate_boq(boq)
+    print_validation_report(report)
+    return EXIT_OK if report.is_valid else EXIT_VALIDATION_ERROR
+
+
 def print_outputs(outputs: dict[str, Path]) -> None:
     print()
     print("Outputs:")
@@ -188,6 +250,9 @@ def print_outputs(outputs: dict[str, Path]) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     configure_logging(args.log_level)
+
+    if args.validate_boq is not None:
+        return run_boq_validation(args.validate_boq)
 
     settings = get_settings()
     if args.no_ocr:

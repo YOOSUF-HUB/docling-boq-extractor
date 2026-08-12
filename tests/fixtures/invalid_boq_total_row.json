@@ -1,0 +1,22 @@
+{
+  "document": {
+    "filename": "sample_boq.pdf",
+    "extracted_at": "2026-08-12T09:14:00Z"
+  },
+  "items": [
+    {
+      "level_path": ["EARTHWORKS"],
+      "boq_item_code": "1.1",
+      "boq_item_name": "Excavation for foundations",
+      "quantity": 125.5,
+      "unit": "m3"
+    },
+    {
+      "level_path": ["EARTHWORKS"],
+      "boq_item_code": "1.3",
+      "boq_item_name": "Total carried forward",
+      "quantity": 1.0,
+      "unit": "sum"
+    }
+  ]
+}

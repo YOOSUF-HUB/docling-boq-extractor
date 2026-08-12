@@ -13,8 +13,9 @@ The LLM only performs semantic restructuring of extracted evidence.
 This project is **standalone** — it has no runtime dependency on the PMS
 application. The PMS BOQ contract is used purely as a target output format.
 
-> **Status: Phase 2 of 10 complete** — Docling processing and the evidence
-> package. See [docs/architecture.md](docs/architecture.md) for the phase plan.
+> **Status: Phase 3 of 10 complete** — Docling processing, the evidence package,
+> and the canonical BOQ schema with deterministic validation. The LLM stage
+> arrives in Phase 4. See [docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -91,6 +92,84 @@ Design decisions:
   all-empty rows are dropped, and that is the extent of it. No number parsing,
   no item detection, no BOQ semantics — those belong to later phases.
 
+## The canonical BOQ
+
+The output contract is the **document-derived subset** of the PMS BOQ format —
+a target data format, not a runtime dependency:
+
+```json
+{
+  "boq_source_version": "1.0",
+  "document": { "filename": "sample_boq.pdf", "extracted_at": "2026-08-12T09:14:00Z" },
+  "items": [
+    {
+      "level_path": ["CONCRETE WORKS", "SUPERSTRUCTURE"],
+      "boq_item_code": "2.3.1",
+      "boq_item_name": "Reinforced concrete columns",
+      "boq_description": "",
+      "quantity": 35.0,
+      "unit": "m3",
+      "cost_type": "per_unit",
+      "labour": 5000.0, "machine": 1500.0, "material": 12000.0, "fuel": 250.0,
+      "miscellaneous": 0.0, "subcontract": 0.0,
+      "site_overhead": 800.0, "head_office_overhead": 400.0,
+      "profit": { "mode": "percent", "value": 10.0 },
+      "discount": { "mode": "amount", "value": 0.0 },
+      "fixed_rate": null
+    }
+  ]
+}
+```
+
+`level_path`, `boq_item_code`, `boq_item_name`, `quantity` and `unit` have no
+defaults — an omitted or empty value is a hard failure, never a guess. Section
+headings live in `level_path`, not in items. Amounts and totals are computed
+outputs and are never emitted. `fixed_rate` carries a direct tender rate when
+the document gives no cost breakdown.
+
+Database ids, temp ids, project-prefixed codes and persistence metadata are
+**rejected** — every model uses `extra="forbid"`, so a payload carrying `id` or
+`temp_id` fails to parse.
+
+### Validation
+
+Two layers, deliberately separate:
+
+| Layer | Enforces |
+|---|---|
+| Pydantic | types, enums, required fields, non-negative finite numbers, no unknown fields |
+| Rules | duplicate codes, totals/subtotals as items, numeric units, numbering used as a section name, rate vs. cost-breakdown conflicts |
+
+Rule failures are **errors** (result untrustworthy) or **warnings** (a human
+should look), producing a report status of `failed`, `partial` or `success`.
+There is no numeric confidence score — there would be no calibrated basis for
+one.
+
+Validate a canonical BOQ JSON file without Docling or the LLM:
+
+```bash
+python -m app.main --validate-boq tests/fixtures/valid_boq.json
+python -m app.main --validate-boq tests/fixtures/invalid_boq_shifted_columns.json
+```
+
+The second one reports a BOQ whose columns were read one place to the left:
+
+```text
+========== VALIDATION ==========
+Status        : partial
+Items         : 1
+Sections      : 1
+Errors        : 0
+Warnings      : 3
+
+Warnings:
+  INVALID_HIERARCHY [item 0]: level_path ['1'] contains numbering (1) instead of a section name.
+  INVALID_UNIT [item 0]: Unit '125.50' for item '1.1' is numeric, which usually means the columns are misaligned.
+  INVALID_QUANTITY [item 0]: Item '1.1' has a quantity of 0.
+```
+
+Exit codes: `0` ok, `1` document error, `2` extraction error, `3` validation error.
+
 Exit codes: `0` success, `1` document error (missing/empty/not a PDF),
 `2` extraction error (Docling could not process the document).
 
@@ -123,9 +202,10 @@ Evidence tests run against captured Docling output
 ```text
 app/
   config.py  logging_config.py  errors.py  main.py
-  document/  pdf_validator.py  docling_processor.py  evidence_builder.py
-  schemas/   evidence.py
-  agent/  validation/  services/  api/                (later phases)
+  document/    pdf_validator.py  docling_processor.py  evidence_builder.py
+  schemas/     evidence.py  boq.py  report.py
+  validation/  boq_validator.py
+  agent/  services/  api/                             (later phases)
 scripts/make_sample_pdf.py
 tests/  data/  docs/
 ```

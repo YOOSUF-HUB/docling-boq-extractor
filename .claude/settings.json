@@ -24,7 +24,11 @@
       "Bash(.venv/bin/python -m pytest tests/test_evidence.py -m \"not docling\")",
       "Bash(.venv/bin/python -m app.main --no-ocr --preview-lines 0)",
       "Bash(awk '{print $5, $9}')",
-      "Bash(.venv/bin/python -m app.main --no-ocr --preview-lines 0 --preview-elements 3)"
+      "Bash(.venv/bin/python -m app.main --no-ocr --preview-lines 0 --preview-elements 3)",
+      "Bash(.venv/bin/python -m pytest tests/test_boq_schema.py)",
+      "Bash(.venv/bin/python -m pytest tests/test_validation.py)",
+      "Bash(.venv/bin/python -m pytest -m \"not docling\" -q)",
+      "Bash(.venv/bin/python -m app.main --validate-boq tests/fixtures/valid_boq.json)"
     ],
     "additionalDirectories": [
       "/Users/yoosufahamed/Desktop/Projects/Docling BOQ Structure Extraction Agent/docling-boq-extractor/app"

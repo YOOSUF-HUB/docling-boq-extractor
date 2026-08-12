@@ -64,9 +64,11 @@ app/
     evidence_builder.py  DoclingDocument -> EvidencePackage
   schemas/
     evidence.py          agent-facing evidence schema
-    boq.py, report.py    canonical BOQ + report   (Phase 3)
+    boq.py               canonical BOQ contract (document-derived subset)
+    report.py            extraction report (status, issues, statistics)
+  validation/
+    boq_validator.py     deterministic BOQ rules
   agent/                 Groq client + prompts  (Phase 4)
-  validation/            BOQ rule validation    (Phase 3)
   services/              end-to-end orchestration (Phase 5)
   api/                   FastAPI layer          (Phase 6)
 scripts/                 fixture generation
@@ -88,7 +90,23 @@ reports a failure instead of hallucinating.
 
 Derived values (totals, tree depth, parents) and PMS/backend values (database
 IDs, temp IDs, project-prefixed codes, persistence metadata) are explicitly out
-of scope.
+of scope. `extra="forbid"` on every BOQ model enforces this: a payload
+containing `id` or `temp_id` fails to parse rather than passing the field
+through.
+
+## Two validation layers
+
+| Layer | Enforces | On failure |
+|---|---|---|
+| Pydantic (`app/schemas/boq.py`) | types, enums, required fields, non-negative finite numbers, no unknown fields | hard parse failure |
+| Rules (`app/validation/boq_validator.py`) | duplicate codes, summary rows as items, numeric units, numbering used as section names, rate/breakdown conflicts | issues in the report |
+
+Rule failures are split into **errors** (the result cannot be trusted as a BOQ)
+and **warnings** (a human should look), which decide the report status:
+`failed`, `partial` or `success`.
+
+The report carries **no numeric confidence score** — there is no calibrated
+basis for one, so an explicit status is used instead.
 
 ## Phase boundaries
 
@@ -96,7 +114,7 @@ of scope.
 |---|---|---|
 | 1 | Project foundation + Docling processing | done |
 | 2 | Evidence package | done |
-| 3 | Canonical BOQ schema + deterministic validation | pending |
+| 3 | Canonical BOQ schema + deterministic validation | done |
 | 4 | Groq GPT-OSS 120B integration | pending |
 | 5 | End-to-end PDF → BOQ JSON | pending |
 | 6 | FastAPI upload API | pending |
