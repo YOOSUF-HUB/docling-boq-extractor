@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python --version)",
+      "Bash(.venv/bin/pip list *)",
+      "Bash(which python3 *)",
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(cd \"/Users/yoosufahamed/Desktop/Projects/Docling BOQ Structure Extraction Agent/docling-boq-extractor\" && mkdir -p app/api app/document app/agent app/schemas app/validation app/services tests/fixtures data/input data/output data/debug docs scripts && find . -path ./.venv -prune -o -type d -print)",
+      "Bash(.venv/bin/pip show *)",
+      "Bash(.venv/bin/python -m scripts.make_sample_pdf)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/python -m app.main)",
+      "Bash(.venv/bin/python -m pytest -m \"not docling\")",
+      "Bash(du -sh ~/.cache/huggingface 2>/dev/null; ls ~/.cache/huggingface/hub 2>/dev/null; ps aux | grep -c \"[a]pp.main\")",
+      "Read(//Users/yoosufahamed/.cache/huggingface/hub/**)",
+      "Bash(.venv/bin/python -m app.main --input data/input/nope.pdf)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(printf 'not a pdf')",
+      "Bash(.venv/bin/python -m app.main --input /tmp/fake.pdf)",
+      "Bash(.venv/bin/python -m pytest)",
+      "Bash(.venv/bin/python -m app.main --no-ocr)",
+      "Bash(.venv/bin/python -m compileall -q app scripts tests)"
+    ],
+    "additionalDirectories": [
+      "/Users/yoosufahamed/Desktop/Projects/Docling BOQ Structure Extraction Agent/docling-boq-extractor/app"
+    ]
+  }
+}

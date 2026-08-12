@@ -1,0 +1,103 @@
+# Architecture
+
+## Purpose
+
+A **standalone** service that turns an uploaded PDF Bill of Quantities into a
+validated, canonical BOQ JSON document.
+
+It is deliberately *not* an LLM wrapper. Document understanding is done by
+Docling, structural rules are enforced by Python, and the LLM is used only for
+the one thing it is actually good at: semantic restructuring of already-extracted
+evidence.
+
+This project has **no runtime dependency on the PMS application**. The PMS BOQ
+contract is used only as a *target data format*.
+
+## Pipeline
+
+```text
+PDF upload
+   ↓
+PDF validation            deterministic  (Phase 1)
+   ↓
+Docling document parse    document AI    (Phase 1)
+   ↓
+Evidence package          deterministic  (Phase 2)
+   ↓
+BOQ candidate detection   deterministic  (Phase 2/4)
+   ↓
+GPT-OSS 120B structuring  LLM            (Phase 4)
+   ↓
+Pydantic validation       deterministic  (Phase 3)
+   ↓
+BOQ rule validation       deterministic  (Phase 3)
+   ↓
+Canonical BOQ JSON + extraction report
+```
+
+## Responsibility split
+
+| Stage | Owner | Responsibility |
+|---|---|---|
+| Validation | Python | Is this a readable PDF within limits? |
+| Docling | Docling | Text, tables, layout, pages, OCR |
+| Evidence | Python | Compact, ordered, provenance-carrying view of the document |
+| Structuring | LLM | Which rows are items, which are sections, how they nest |
+| Schema | Pydantic | Types, enums, required fields |
+| BOQ rules | Python | Duplicate codes, hierarchy sanity, numeric sanity |
+| Report | Python | Status, warnings, errors, statistics, provenance |
+
+The LLM never generates IDs, timestamps, totals, or any PMS-internal field, and
+never invents a value that is not present in the evidence.
+
+## Layout
+
+```text
+app/
+  config.py              settings from .env (no hardcoded secrets)
+  logging_config.py      standard logging setup
+  errors.py              document / extraction / AI / validation error split
+  main.py                CLI entry point
+  document/
+    pdf_validator.py     deterministic input checks
+    docling_processor.py Docling conversion + summary
+  schemas/               Pydantic models        (Phase 2/3)
+  agent/                 Groq client + prompts  (Phase 4)
+  validation/            BOQ rule validation    (Phase 3)
+  services/              end-to-end orchestration (Phase 5)
+  api/                   FastAPI layer          (Phase 6)
+scripts/                 fixture generation
+tests/                   unit / integration / (opt-in) live tests
+data/                    input, output, debug artifacts
+```
+
+## Target contract (summary)
+
+The canonical output is the **document-derived subset** of the PMS BOQ contract:
+
+`level_path`, `boq_item_code`, `boq_item_name`, `boq_description`, `quantity`,
+`unit`, `cost_type`, the cost breakdown fields, `profit`, `discount`,
+`fixed_rate`.
+
+Five fields must never be guessed — `level_path`, `boq_item_code`,
+`boq_item_name`, `quantity`, `unit`. If they cannot be extracted, the run
+reports a failure instead of hallucinating.
+
+Derived values (totals, tree depth, parents) and PMS/backend values (database
+IDs, temp IDs, project-prefixed codes, persistence metadata) are explicitly out
+of scope.
+
+## Phase boundaries
+
+| Phase | Deliverable | Status |
+|---|---|---|
+| 1 | Project foundation + Docling processing | done |
+| 2 | Evidence package | pending |
+| 3 | Canonical BOQ schema + deterministic validation | pending |
+| 4 | Groq GPT-OSS 120B integration | pending |
+| 5 | End-to-end PDF → BOQ JSON | pending |
+| 6 | FastAPI upload API | pending |
+| 7 | Robustness + real BOQ test suite | pending |
+| 8 | Observability + debug artifacts | pending |
+| 9 | Docker | pending |
+| 10 | Documentation | pending |

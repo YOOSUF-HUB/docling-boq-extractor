@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+.env
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Runtime artifacts (inputs/outputs are generated, not versioned)
+data/output/*
+data/debug/*
+!data/**/.gitkeep
+
+# OS
+.DS_Store

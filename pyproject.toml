@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docling-boq-extractor"
+version = "0.1.0"
+description = "Standalone agent that extracts a canonical Bill of Quantities from PDF documents using Docling + GPT-OSS 120B."
+requires-python = ">=3.13"
+readme = "README.md"
+dependencies = [
+    "docling",
+    "pydantic>=2",
+    "pydantic-settings",
+    "python-dotenv",
+    "groq",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "reportlab",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "docling: integration tests that run the real Docling pipeline (slow)",
+    "live: tests that call the Groq API (opt-in, never run in CI)",
+]
