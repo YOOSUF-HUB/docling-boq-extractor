@@ -68,7 +68,11 @@ app/
     report.py            extraction report (status, issues, statistics)
   validation/
     boq_validator.py     deterministic BOQ rules
-  agent/                 Groq client + prompts  (Phase 4)
+  agent/
+    prompts.py           system prompt, strict response schema, evidence rendering
+    groq_client.py       Groq API wrapper + error mapping
+    boq_agent.py         prompt -> validate -> controlled retry
+    test_agent.py        manual live check (not part of the pytest suite)
   services/              end-to-end orchestration (Phase 5)
   api/                   FastAPI layer          (Phase 6)
 scripts/                 fixture generation
@@ -108,6 +112,26 @@ and **warnings** (a human should look), which decide the report status:
 The report carries **no numeric confidence score** — there is no calibrated
 basis for one, so an explicit status is used instead.
 
+## How the LLM is constrained
+
+The model is given evidence and asked for items. Everything it could get wrong
+that Python can get right is kept away from it:
+
+| Constraint | Mechanism |
+|---|---|
+| Response shape | Groq `response_format: json_schema` with `strict: true` |
+| No invented fields | `extra="forbid"`, and the schema omits amount/total/id entirely |
+| No timestamps or filenames | the model returns `items` only; `BOQDocument.assemble()` adds the rest |
+| No guessed required fields | it reports rows it cannot extract in `unresolved` instead |
+| Malformed output | one repair round quoting the validation errors, then a hard failure |
+
+Nothing is ever repaired locally: a bad response is re-requested or reported,
+because patching JSON into shape is indistinguishable from inventing data.
+
+Self-reported `unresolved` rows become report *warnings* (`MISSING_UNIT` and
+friends) — the row is missing from the output, which a human needs to know,
+but the agent behaved correctly by refusing to guess.
+
 ## Phase boundaries
 
 | Phase | Deliverable | Status |
@@ -115,7 +139,7 @@ basis for one, so an explicit status is used instead.
 | 1 | Project foundation + Docling processing | done |
 | 2 | Evidence package | done |
 | 3 | Canonical BOQ schema + deterministic validation | done |
-| 4 | Groq GPT-OSS 120B integration | pending |
+| 4 | Groq GPT-OSS 120B integration | done |
 | 5 | End-to-end PDF → BOQ JSON | pending |
 | 6 | FastAPI upload API | pending |
 | 7 | Robustness + real BOQ test suite | pending |

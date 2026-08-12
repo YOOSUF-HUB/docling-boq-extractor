@@ -40,6 +40,8 @@ class IssueType(StrEnum):
     # --- AI ---
     LLM_REQUEST_FAILED = "LLM_REQUEST_FAILED"
     LLM_INVALID_OUTPUT = "LLM_INVALID_OUTPUT"
+    #: The agent saw a row it believed was an item but could not fully extract.
+    UNRESOLVED_ROW = "UNRESOLVED_ROW"
 
     # --- schema / validation ---
     SCHEMA_VALIDATION_FAILED = "SCHEMA_VALIDATION_FAILED"

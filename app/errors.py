@@ -16,3 +16,28 @@ class DocumentError(BOQExtractionError):
 
 class ExtractionError(BOQExtractionError):
     """Docling ran but could not produce a usable document representation."""
+
+
+class ConfigurationError(BOQExtractionError):
+    """Required configuration (e.g. GROQ_API_KEY) is missing."""
+
+
+class AIError(BOQExtractionError):
+    """Base class for failures involving the LLM."""
+
+
+class AIRequestError(AIError):
+    """The request never produced a usable response: transport, auth,
+    rate limit, timeout, or a server-side error."""
+
+
+class AIResponseError(AIError):
+    """The model answered, but the answer is not valid structured output.
+
+    Carries the issues so the caller can build a failed extraction report
+    instead of guessing what went wrong.
+    """
+
+    def __init__(self, message: str, issues: list | None = None) -> None:
+        super().__init__(message)
+        self.issues = issues or []

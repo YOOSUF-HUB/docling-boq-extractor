@@ -22,9 +22,19 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # --- LLM (Phase 4+) ---
+    # --- LLM ---
     groq_api_key: str | None = None
     groq_model: str = "openai/gpt-oss-120b"
+    #: 0 keeps extraction as reproducible as the model allows.
+    groq_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    #: Counts towards Groq's tokens-per-minute budget *before* the call is made,
+    #: so an oversized value gets a 413 on small tiers (free tier is 8k TPM).
+    groq_max_completion_tokens: int = Field(default=4000, gt=0)
+    groq_timeout_seconds: float = Field(default=120.0, gt=0)
+    #: Transport-level retries (connection errors, 429, 5xx) done by the SDK.
+    groq_max_retries: int = Field(default=2, ge=0)
+    #: Attempts at getting schema-valid output; >1 enables one repair round.
+    llm_max_attempts: int = Field(default=2, ge=1)
 
     # --- Logging ---
     log_level: str = "INFO"

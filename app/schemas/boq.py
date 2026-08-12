@@ -186,6 +186,27 @@ class BOQDocument(BaseModel):
     document: BOQDocumentInfo
     items: list[BOQItem] = Field(default_factory=list)
 
+    @classmethod
+    def assemble(
+        cls,
+        items: list[BOQItem],
+        *,
+        filename: str,
+        extracted_at: datetime | None = None,
+    ) -> BOQDocument:
+        """Build the canonical document around LLM-extracted items.
+
+        The filename and timestamp are deterministic Python values — the model
+        is never asked to produce them.
+        """
+        return cls(
+            document=BOQDocumentInfo(
+                filename=filename,
+                extracted_at=extracted_at or datetime.now(UTC),
+            ),
+            items=items,
+        )
+
     @property
     def item_codes(self) -> list[str]:
         return [item.boq_item_code for item in self.items]
@@ -199,3 +220,34 @@ class BOQDocument(BaseModel):
     def level_paths(self) -> list[tuple[str, ...]]:
         """Distinct hierarchy paths, in first-seen order."""
         return list(dict.fromkeys(tuple(item.level_path) for item in self.items))
+
+
+class UnresolvedItem(BaseModel):
+    """A row the model believes is a BOQ item but could not fully extract.
+
+    This is the alternative to guessing. Rather than inventing a unit or a
+    quantity, the model reports what it saw and which required fields it could
+    not establish; the extraction report surfaces it as a warning.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    boq_item_code: str | None = None
+    description: str | None = None
+    missing_fields: list[str] = Field(default_factory=list)
+    reason: str
+    evidence_ref: str | None = None
+
+
+class BOQExtractionResponse(BaseModel):
+    """Exactly what the LLM is allowed to return.
+
+    Note what is *absent*: no filename, no timestamp, no totals, no ids. Those
+    are either deterministic Python values or computed downstream, so the model
+    is never given the opportunity to invent them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[BOQItem] = Field(default_factory=list)
+    unresolved: list[UnresolvedItem] = Field(default_factory=list)

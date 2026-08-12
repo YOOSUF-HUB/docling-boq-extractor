@@ -13,9 +13,10 @@ The LLM only performs semantic restructuring of extracted evidence.
 This project is **standalone** — it has no runtime dependency on the PMS
 application. The PMS BOQ contract is used purely as a target output format.
 
-> **Status: Phase 3 of 10 complete** — Docling processing, the evidence package,
-> and the canonical BOQ schema with deterministic validation. The LLM stage
-> arrives in Phase 4. See [docs/architecture.md](docs/architecture.md).
+> **Status: Phase 4 of 10 complete** — Docling processing, the evidence package,
+> the canonical BOQ schema with deterministic validation, and the Groq
+> GPT-OSS-120B extraction agent. Phase 5 joins them into one PDF → BOQ command.
+> See [docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -170,6 +171,61 @@ Warnings:
 
 Exit codes: `0` ok, `1` document error, `2` extraction error, `3` validation error.
 
+## The extraction agent
+
+`openai/gpt-oss-120b` on Groq turns the evidence package into canonical items.
+It is given as little rope as possible:
+
+| Constraint | Mechanism |
+|---|---|
+| Response shape | Groq `response_format: json_schema` with `strict: true` |
+| No invented fields | `extra="forbid"`; the schema has no amount/total/id field to fill |
+| No timestamps or filenames | it returns `items` only — Python adds the document metadata |
+| No guessed required fields | rows it cannot extract go into `unresolved`, not into `items` |
+| Malformed output | one repair round quoting the validation errors, then a hard failure |
+
+Nothing is repaired locally. A bad response is re-requested or reported —
+patching JSON into shape is indistinguishable from inventing data.
+
+Run the agent against a saved evidence package (**live API call**):
+
+```bash
+python -m app.agent.test_agent
+python -m app.agent.test_agent --evidence data/output/evidence.json --show-prompt
+```
+
+```text
+========== AI BOQ ==========
+Model         : openai/gpt-oss-120b
+Attempts      : 1
+Schema mode   : json_schema
+Duration      : 12.39s
+Tokens        : 1853 in / 1455 out
+Items         : 6
+Unresolved    : 0
+
+  EARTHWORKS       1.1  Excavation for foundations       125.5 m3
+  EARTHWORKS       1.2  Filling with selected material    80.0 m3
+  CONCRETE WORKS   2.1  Blinding concrete                 15.0 m3
+  CONCRETE WORKS   2.2  Reinforced concrete foundations   50.0 m3
+  CONCRETE WORKS   2.3  Reinforced concrete columns       35.0 m3
+  MASONRY          3.1  Brickwork in cement mortar       250.0 m2
+
+========== VALIDATION ==========
+Status        : success
+```
+
+The three section rows (`1`, `2`, `3`) became `level_path` entries rather than
+items, and no rates were invented for a document that has none.
+
+### Groq rate limits
+
+`GROQ_MAX_COMPLETION_TOKENS` is reserved against your tokens-per-minute budget
+*before* the call runs, so on Groq's free tier (8,000 TPM) a large value gets a
+`413 Request too large` even for a small document. The default of 4,000 leaves
+room for roughly 4,000 tokens of evidence. Larger BOQs need a paid tier — a
+truncated response is detected and raised, never silently accepted.
+
 Exit codes: `0` success, `1` document error (missing/empty/not a PDF),
 `2` extraction error (Docling could not process the document).
 
@@ -177,8 +233,13 @@ Exit codes: `0` success, `1` document error (missing/empty/not a PDF),
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GROQ_API_KEY` | — | Groq credentials (Phase 4+). Never commit it. |
+| `GROQ_API_KEY` | — | Groq credentials. Never commit it. |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | LLM used for restructuring |
+| `GROQ_TEMPERATURE` | `0.0` | Kept at 0 for reproducibility |
+| `GROQ_MAX_COMPLETION_TOKENS` | `4000` | Counts against Groq's TPM limit — see below |
+| `GROQ_TIMEOUT_SECONDS` | `120` | Per-request timeout |
+| `GROQ_MAX_RETRIES` | `2` | SDK transport retries (429/5xx/connection) |
+| `LLM_MAX_ATTEMPTS` | `2` | Schema-valid output attempts; 2 = one repair round |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 | `DOCLING_DO_OCR` | `true` | OCR pages without a text layer |
 | `DOCLING_DO_TABLE_STRUCTURE` | `true` | Reconstruct table rows/columns |
@@ -188,14 +249,22 @@ Exit codes: `0` success, `1` document error (missing/empty/not a PDF),
 ## Tests
 
 ```bash
-pytest -m "not docling"    # fast unit tests (~4s, no models)
-pytest -m docling          # real Docling run against the sample PDF (slow)
-pytest                     # everything
+pytest -m "not docling"                    # fast unit tests (~4s, no models, no network)
+pytest -m docling                          # real Docling run against the sample PDF (slow)
+pytest                                     # everything except live
+RUN_LIVE_TESTS=1 pytest -m live tests/live # opt-in, real Groq calls
 ```
 
-Evidence tests run against captured Docling output
-(`tests/fixtures/docling_sample_boq.json`) plus documents assembled in
-`tests/factories.py`, so they need no PDF, no models and no network.
+Three layers, deliberately separated:
+
+- **Unit** — schemas, validators, evidence builder, prompts, agent logic with
+  mocked LLM responses. No PDF, no models, no network, no API key.
+- **Integration** — the real Docling pipeline against the sample PDF
+  (`-m docling`). Evidence tests use captured Docling output
+  (`tests/fixtures/docling_sample_boq.json`) plus documents assembled in
+  `tests/factories.py`, so they stay fast.
+- **Live** — real Groq calls, skipped unless `RUN_LIVE_TESTS=1` and a key is
+  configured, so CI never depends on the API.
 
 ## Project structure
 
@@ -205,7 +274,8 @@ app/
   document/    pdf_validator.py  docling_processor.py  evidence_builder.py
   schemas/     evidence.py  boq.py  report.py
   validation/  boq_validator.py
-  agent/  services/  api/                             (later phases)
+  agent/       prompts.py  groq_client.py  boq_agent.py  test_agent.py
+  services/  api/                                      (later phases)
 scripts/make_sample_pdf.py
-tests/  data/  docs/
+tests/  tests/live/  data/  docs/
 ```
