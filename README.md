@@ -13,9 +13,9 @@ The LLM only performs semantic restructuring of extracted evidence.
 This project is **standalone** — it has no runtime dependency on the PMS
 application. The PMS BOQ contract is used purely as a target output format.
 
-> **Status: Phase 4 of 10 complete** — Docling processing, the evidence package,
-> the canonical BOQ schema with deterministic validation, and the Groq
-> GPT-OSS-120B extraction agent. Phase 5 joins them into one PDF → BOQ command.
+> **Status: Phase 5 of 10 complete** — the pipeline runs end to end: one command
+> takes a PDF and produces a canonical BOQ JSON plus an extraction report.
+> Phase 6 puts an HTTP API in front of it.
 > See [docs/architecture.md](docs/architecture.md).
 
 ---
@@ -32,7 +32,7 @@ python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env      # GROQ_API_KEY only needed from Phase 4
+cp .env.example .env      # add your GROQ_API_KEY
 ```
 
 ## Usage
@@ -48,6 +48,7 @@ Run the pipeline:
 ```bash
 python -m app.main                                   # uses data/input/sample_boq.pdf
 python -m app.main --input path/to/your_boq.pdf
+python -m app.main --evidence-only                   # stop before the LLM (no API key)
 python -m app.main --no-ocr                          # faster for text-only PDFs
 python -m app.main --preview-lines 0                 # skip the markdown preview
 ```
@@ -58,18 +59,68 @@ Outputs:
 data/output/docling_output.md        Markdown rendering of the document
 data/output/docling_document.json    full Docling document export
 data/output/evidence.json            the agent-facing evidence package
+data/output/boq.json                 the canonical BOQ
+data/output/extraction_report.json   status, issues and statistics
 ```
 
-plus a printed `DOCLING` and `EVIDENCE` summary.
+plus a printed summary of each stage — `DOCLING`, `EVIDENCE`, `AI BOQ`,
+`VALIDATION`, `FINAL BOQ`:
+
+```text
+========== VALIDATION ==========
+Status        : success
+Items         : 6
+Sections      : 3
+Errors        : 0
+Warnings      : 0
+
+========== FINAL BOQ ==========
+Version       : 1.0
+Document      : sample_boq.pdf
+Extracted at  : 2026-08-13T05:26:45.602235+00:00
+Items         : 6
+Sections      : EARTHWORKS, CONCRETE WORKS, MASONRY
+
+  EARTHWORKS       1.1  Excavation for foundations       125.5 m3
+  EARTHWORKS       1.2  Filling with selected material    80.0 m3
+  CONCRETE WORKS   2.1  Blinding concrete                 15.0 m3
+  CONCRETE WORKS   2.2  Reinforced concrete foundations   50.0 m3
+  CONCRETE WORKS   2.3  Reinforced concrete columns       35.0 m3
+  MASONRY          3.1  Brickwork in cement mortar       250.0 m2
+```
+
+Exit codes: `0` ok, `1` document error, `2` extraction error, `3` validation
+error, `4` configuration error (no API key), `5` the model could not be reached.
 
 Docling loads its layout/OCR models in a worker process that does its own
 logging, so a few model-loading lines appear on stderr during the first
 conversion. `--no-ocr` removes the OCR ones.
 
+### As a library
+
+```python
+from app.services.extraction_service import extract_boq_from_pdf
+
+result = extract_boq_from_pdf("data/input/sample_boq.pdf")
+
+result.boq                 # BOQDocument | None — the canonical output
+result.report              # status, errors, warnings, statistics
+result.evidence_metadata   # what the document was: pages, tables, Docling status
+result.llm                 # model, attempts, tokens (None if never called)
+result.succeeded           # a BOQ was produced and nothing blocking was found
+```
+
+The service **raises** when it could not form a judgement about the document
+(`DocumentError`, `ExtractionError`, `ConfigurationError`, `AIRequestError`) and
+**reports** when it could — no BOQ in the document, output the validator
+refused, or rules the extracted items break. A request error means no answer
+ever arrived; a response error means one did and was rejected. Only the second
+is a statement about the document, so only the second becomes a report.
+
 ## The evidence package
 
-`evidence.json` is what the LLM will be given in Phase 4 — not the raw Docling
-JSON, which is ~15x larger and mostly geometry the model cannot use.
+`evidence.json` is what the LLM is given — not the raw Docling JSON, which is
+~15x larger and mostly geometry the model cannot use.
 
 ```text
 EvidencePackage
@@ -169,8 +220,6 @@ Warnings:
   INVALID_QUANTITY [item 0]: Item '1.1' has a quantity of 0.
 ```
 
-Exit codes: `0` ok, `1` document error, `2` extraction error, `3` validation error.
-
 ## The extraction agent
 
 `openai/gpt-oss-120b` on Groq turns the evidence package into canonical items.
@@ -199,24 +248,15 @@ python -m app.agent.test_agent --evidence data/output/evidence.json --show-promp
 Model         : openai/gpt-oss-120b
 Attempts      : 1
 Schema mode   : json_schema
-Duration      : 12.39s
-Tokens        : 1853 in / 1455 out
+Duration      : 4.38s
+Tokens        : 1853 in / 1559 out
 Items         : 6
 Unresolved    : 0
-
-  EARTHWORKS       1.1  Excavation for foundations       125.5 m3
-  EARTHWORKS       1.2  Filling with selected material    80.0 m3
-  CONCRETE WORKS   2.1  Blinding concrete                 15.0 m3
-  CONCRETE WORKS   2.2  Reinforced concrete foundations   50.0 m3
-  CONCRETE WORKS   2.3  Reinforced concrete columns       35.0 m3
-  MASONRY          3.1  Brickwork in cement mortar       250.0 m2
-
-========== VALIDATION ==========
-Status        : success
 ```
 
-The three section rows (`1`, `2`, `3`) became `level_path` entries rather than
-items, and no rates were invented for a document that has none.
+On the sample document the three section rows (`1`, `2`, `3`) become
+`level_path` entries rather than items, and no rates are invented for a document
+that has none.
 
 ### Groq rate limits
 
@@ -225,9 +265,6 @@ items, and no rates were invented for a document that has none.
 `413 Request too large` even for a small document. The default of 4,000 leaves
 room for roughly 4,000 tokens of evidence. Larger BOQs need a paid tier — a
 truncated response is detected and raised, never silently accepted.
-
-Exit codes: `0` success, `1` document error (missing/empty/not a PDF),
-`2` extraction error (Docling could not process the document).
 
 ## Environment variables
 
@@ -258,7 +295,8 @@ RUN_LIVE_TESTS=1 pytest -m live tests/live # opt-in, real Groq calls
 Three layers, deliberately separated:
 
 - **Unit** — schemas, validators, evidence builder, prompts, agent logic with
-  mocked LLM responses. No PDF, no models, no network, no API key.
+  mocked LLM responses, the orchestration service and the CLI. No PDF, no
+  models, no network, no API key.
 - **Integration** — the real Docling pipeline against the sample PDF
   (`-m docling`). Evidence tests use captured Docling output
   (`tests/fixtures/docling_sample_boq.json`) plus documents assembled in
@@ -275,7 +313,8 @@ app/
   schemas/     evidence.py  boq.py  report.py
   validation/  boq_validator.py
   agent/       prompts.py  groq_client.py  boq_agent.py  test_agent.py
-  services/  api/                                      (later phases)
+  services/    extraction_service.py
+  api/                                                  (Phase 6)
 scripts/make_sample_pdf.py
 tests/  tests/live/  data/  docs/
 ```

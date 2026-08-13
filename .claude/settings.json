@@ -31,7 +31,21 @@
       "Bash(.venv/bin/python -m app.main --validate-boq tests/fixtures/valid_boq.json)",
       "Bash(.venv/bin/python -m app.agent.test_agent)",
       "Bash(.venv/bin/python -m pytest tests/test_agent.py)",
-      "Bash(RUN_LIVE_TESTS=1 .venv/bin/python -m pytest -m live tests/live -q)"
+      "Bash(RUN_LIVE_TESTS=1 .venv/bin/python -m pytest -m live tests/live -q)",
+      "Bash(.venv/bin/python -m pytest -q)",
+      "Bash(.venv/bin/python -m pytest -p no:cacheprovider)",
+      "Bash(.venv/bin/python -m app.main --input data/input/sample_boq.pdf --preview-lines 0 --preview-elements 0)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(.venv/bin/python -m app.main --input __TRACKED_VAR__/fake.pdf)",
+      "Bash(echo \"bad pdf EXIT=$?\")",
+      "Bash(.venv/bin/python -m app.main --validate-boq tests/fixtures/invalid_boq_shifted_columns.json)",
+      "Bash(echo \"shifted columns EXIT=$?\")",
+      "Bash(.venv/bin/python -m app.main --validate-boq tests/fixtures/invalid_boq_total_as_item.json)",
+      "Bash(.venv/bin/python -m app.main --validate-boq tests/fixtures/invalid_boq_total_row.json)",
+      "Bash(echo \"total row EXIT=$?\")",
+      "Bash(.venv/bin/python -m app.main --validate-boq tests/fixtures/invalid_boq_pms_fields.json)",
+      "Bash(echo \"pms fields EXIT=$?\")",
+      "Bash(.venv/bin/python -m pytest -m \"not docling\" -p no:cacheprovider)"
     ],
     "additionalDirectories": [
       "/Users/yoosufahamed/Desktop/Projects/Docling BOQ Structure Extraction Agent/docling-boq-extractor/app"

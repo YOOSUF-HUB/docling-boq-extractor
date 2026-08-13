@@ -73,7 +73,8 @@ app/
     groq_client.py       Groq API wrapper + error mapping
     boq_agent.py         prompt -> validate -> controlled retry
     test_agent.py        manual live check (not part of the pytest suite)
-  services/              end-to-end orchestration (Phase 5)
+  services/
+    extraction_service.py  end-to-end pipeline: PDF -> BOQ + report
   api/                   FastAPI layer          (Phase 6)
 scripts/                 fixture generation
 tests/                   unit / integration / (opt-in) live tests
@@ -132,6 +133,32 @@ Self-reported `unresolved` rows become report *warnings* (`MISSING_UNIT` and
 friends) — the row is missing from the output, which a human needs to know,
 but the agent behaved correctly by refusing to guess.
 
+## What raises and what reports
+
+`extract_boq_from_pdf()` composes the stages, and has one rule for deciding
+whether a failure is an exception or a report:
+
+> Raise when we could not form a judgement about the document. Report when we
+> could.
+
+| Failure | Outcome |
+|---|---|
+| Not a usable PDF | raises `DocumentError` |
+| Docling could not process it | raises `ExtractionError` |
+| `GROQ_API_KEY` missing | raises `ConfigurationError` |
+| The model was never reached | raises `AIRequestError` |
+| Nothing in the document to interpret | `failed` report, `NO_BOQ_DETECTED` |
+| The model answered and was refused | `failed` report, `LLM_INVALID_OUTPUT` |
+| Items extracted but rules broken | `failed`/`partial` report, items kept |
+
+A request error means no answer ever arrived; a response error means one did and
+was rejected. Only the second says anything about the document, so only the
+second becomes a report.
+
+Note the last row: a result that fails validation still carries its items. A
+human fixing a bad extraction needs to see what was extracted, and the report
+already says the result cannot be trusted.
+
 ## Phase boundaries
 
 | Phase | Deliverable | Status |
@@ -140,7 +167,7 @@ but the agent behaved correctly by refusing to guess.
 | 2 | Evidence package | done |
 | 3 | Canonical BOQ schema + deterministic validation | done |
 | 4 | Groq GPT-OSS 120B integration | done |
-| 5 | End-to-end PDF → BOQ JSON | pending |
+| 5 | End-to-end PDF → BOQ JSON | done |
 | 6 | FastAPI upload API | pending |
 | 7 | Robustness + real BOQ test suite | pending |
 | 8 | Observability + debug artifacts | pending |
