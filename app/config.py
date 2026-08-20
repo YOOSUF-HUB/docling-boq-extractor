@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     groq_max_retries: int = Field(default=2, ge=0)
     #: Attempts at getting schema-valid output; >1 enables one repair round.
     llm_max_attempts: int = Field(default=2, ge=1)
+    #: Tokens-per-minute ceiling a request is measured against. Read only by
+    #: `app.benchmark`; the real limit is enforced by Groq, and the extraction
+    #: pipeline neither reads nor honours this value.
+    groq_tpm_limit: int = Field(default=8000, gt=0)
 
     # --- Logging ---
     log_level: str = "INFO"
@@ -52,6 +56,7 @@ class Settings(BaseSettings):
     input_dir: Path = BASE_DIR / "data" / "input"
     output_dir: Path = BASE_DIR / "data" / "output"
     debug_dir: Path = BASE_DIR / "data" / "debug"
+    benchmark_dir: Path = BASE_DIR / "data" / "benchmark"
 
     @property
     def max_pdf_size_bytes(self) -> int:

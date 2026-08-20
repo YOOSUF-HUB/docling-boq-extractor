@@ -266,6 +266,48 @@ that has none.
 room for roughly 4,000 tokens of evidence. Larger BOQs need a paid tier — a
 truncated response is detected and raised, never silently accepted.
 
+## Token benchmark
+
+`python -m app.benchmark` measures where a request's tokens go. It **observes**
+the pipeline and never changes it: the prompt comes from the agent's own
+`build_user_prompt()`, and a live run reaches Groq through `BOQAgent` itself via
+a recording client.
+
+```bash
+python -m app.benchmark                                  # the sample PDF
+python -m app.benchmark --corpus data/input              # every PDF in a folder
+python -m app.benchmark --evidence data/output/evidence.json   # skip Docling
+python -m app.benchmark --live                           # also call Groq
+python -m app.benchmark --corpus data/input --fail-on-exceed   # exit 3 if over TPM
+```
+
+Static mode spends no tokens and needs no API key. Docling results are cached
+under `data/benchmark/evidence/`; `--refresh` re-converts.
+
+```text
+========== WHERE THE TOKENS GO ==========
+centre                           tokens   share  scales with doc
+system prompt                       907   15.5%  no — fixed cost
+response schema                     498    8.5%  no — fixed cost
+prompt header + footer               60    1.0%  no — fixed cost
+page markers                          5    0.1%  yes
+text blocks                          28    0.5%  yes
+table rows                          214    3.7%  yes
+chat envelope                       141    2.4%  no — fixed cost
+reserved completion budget        4,000   68.3%  no — fixed cost
+```
+
+Tokens are counted with `o200k_harmony`, the encoding `gpt-oss-120b` itself
+uses — never with a `len(text) / 4` heuristic, which is off by 40%+ on the
+numeric table rows a BOQ prompt is mostly made of. If `tiktoken` cannot be
+loaded the benchmark reports an error rather than an estimate.
+
+Figures the tokenizer produced and figures Groq charged are kept separate. Until
+a live run measures the chat envelope, totals are reported as `at least N`;
+`--envelope-tokens N` applies an envelope measured earlier.
+
+Current findings are in [docs/token-baseline.md](docs/token-baseline.md).
+
 ## Environment variables
 
 | Variable | Default | Purpose |
@@ -277,6 +319,7 @@ truncated response is detected and raised, never silently accepted.
 | `GROQ_TIMEOUT_SECONDS` | `120` | Per-request timeout |
 | `GROQ_MAX_RETRIES` | `2` | SDK transport retries (429/5xx/connection) |
 | `LLM_MAX_ATTEMPTS` | `2` | Schema-valid output attempts; 2 = one repair round |
+| `GROQ_TPM_LIMIT` | `8000` | Benchmark-only: the TPM ceiling requests are measured against |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 | `DOCLING_DO_OCR` | `true` | OCR pages without a text layer |
 | `DOCLING_DO_TABLE_STRUCTURE` | `true` | Reconstruct table rows/columns |
@@ -295,8 +338,8 @@ RUN_LIVE_TESTS=1 pytest -m live tests/live # opt-in, real Groq calls
 Three layers, deliberately separated:
 
 - **Unit** — schemas, validators, evidence builder, prompts, agent logic with
-  mocked LLM responses, the orchestration service and the CLI. No PDF, no
-  models, no network, no API key.
+  mocked LLM responses, the orchestration service, the CLI and the token
+  benchmark. No PDF, no models, no network, no API key.
 - **Integration** — the real Docling pipeline against the sample PDF
   (`-m docling`). Evidence tests use captured Docling output
   (`tests/fixtures/docling_sample_boq.json`) plus documents assembled in
@@ -314,6 +357,8 @@ app/
   validation/  boq_validator.py
   agent/       prompts.py  groq_client.py  boq_agent.py  test_agent.py
   services/    extraction_service.py
+  benchmark/   tokenizer.py  segments.py  metrics.py  recorder.py
+               token_benchmark.py  report.py  __main__.py
   api/                                                  (Phase 6)
 scripts/make_sample_pdf.py
 tests/  tests/live/  data/  docs/

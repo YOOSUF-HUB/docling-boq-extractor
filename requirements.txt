@@ -8,6 +8,11 @@ fastapi==0.141.1
 uvicorn[standard]==0.52.1
 python-multipart==0.0.32
 
+# Benchmarking — the tokenizer gpt-oss uses (o200k_harmony).
+# Required, not optional: the benchmark refuses to estimate tokens from
+# character counts, so without this it reports an error rather than a guess.
+tiktoken==0.14.0
+
 # Development / fixtures
 pytest==9.1.1
 reportlab==5.0.0

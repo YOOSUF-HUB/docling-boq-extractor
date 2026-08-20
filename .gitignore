@@ -19,6 +19,7 @@ venv/
 # Runtime artifacts (inputs/outputs are generated, not versioned)
 data/output/*
 data/debug/*
+data/benchmark/*
 !data/**/.gitkeep
 
 # OS

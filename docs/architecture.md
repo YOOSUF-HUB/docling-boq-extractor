@@ -75,6 +75,13 @@ app/
     test_agent.py        manual live check (not part of the pytest suite)
   services/
     extraction_service.py  end-to-end pipeline: PDF -> BOQ + report
+  benchmark/             token-usage measurement (observes, never changes)
+    tokenizer.py           o200k_harmony counting + exact attribution
+    segments.py            the user prompt broken into labelled parts
+    metrics.py             the benchmark record
+    recorder.py            a Groq client that measures instead of altering
+    token_benchmark.py     static and live measurement
+    report.py              console rendering
   api/                   FastAPI layer          (Phase 6)
 scripts/                 fixture generation
 tests/                   unit / integration / (opt-in) live tests
@@ -158,6 +165,32 @@ second becomes a report.
 Note the last row: a result that fails validation still carries its items. A
 human fixing a bad extraction needs to see what was extracted, and the report
 already says the result cannot be trusted.
+
+## Measurement
+
+`app/benchmark` answers one question — *where does a request's token budget
+go?* — and is deliberately not part of the pipeline. It depends on the pipeline;
+the pipeline does not depend on it.
+
+It reaches production code only through seams that already existed:
+
+| Needs | Uses | Instead of |
+|---|---|---|
+| The exact prompt | `build_user_prompt()` | re-implementing the renderer |
+| The exact request | `BOQAgent(client=…)` | patching the agent |
+| Per-component costs | mirrored segmentation, guarded by an equality test | parsing the prompt back |
+
+Two rules keep the numbers honest. **Counted and charged are never merged**: a
+count this project made and a figure Groq billed live in separate fields and are
+reconciled explicitly. **Floors are labelled as floors**: without a live call
+the chat envelope is unknown, so totals are reported as lower bounds rather than
+presented as the real figure.
+
+Token counts use `o200k_harmony`, the encoding `gpt-oss-120b` itself uses. There
+is no character-based fallback — the same reasoning as the report's missing
+confidence score: an unfounded number is worse than an explicit failure.
+
+Findings live in [token-baseline.md](token-baseline.md).
 
 ## Phase boundaries
 

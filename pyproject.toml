@@ -17,6 +17,7 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "python-multipart",
+    "tiktoken",
 ]
 
 [project.optional-dependencies]
